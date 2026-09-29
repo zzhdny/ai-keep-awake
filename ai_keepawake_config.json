@@ -1,0 +1,50 @@
+{
+  "_说明": {
+    "用途": "有 AI 进程在工作时阻止息屏/待机，全部空闲后恢复系统默认行为。改完此文件保存即可，程序会自动热加载，无需重启。",
+    "process_names": "AI 进程名白名单（不区分大小写，.exe 可省略），精确匹配进程名。",
+    "cmdline_keywords": "命令行关键词，进程命令行包含任一词（子串匹配）即视为 AI 进程。",
+    "exclude_cmdline_keywords": "排除名单：命令行包含任一词的进程永远不算 AI（用于排除名字撞车的后台工具）。",
+    "include_descendants": "AI 进程派生的子进程（AI 启动的安装、转码、脚本任务）的 CPU 活动是否也算 AI 在工作。",
+    "grace_seconds": "宽限期：AI 进程停止 CPU 活动后仍维持'工作中'状态多少秒，容忍 AI 等待网络响应的空档。",
+    "min_cpu_seconds_per_poll": "AI 程序自身进程（按名单/关键词匹配的）一个轮询周期内 CPU 累计超过该秒数才算'有活动'。实测空闲 Electron 进程噪声在 0.1 以下、真实工作在 0.25 以上，默认 0.2 居中。",
+    "min_cpu_seconds_per_poll_descendant": "AI 派生子进程（pip/npm/编译等真实任务）的活动阈值，保持灵敏，默认 0.05。",
+    "poll_interval_seconds": "轮询间隔秒数。",
+    "prevent_display_off": "true 时阻止息屏。",
+    "prevent_system_sleep": "true 时阻止系统待机睡眠。",
+    "block_only_on_ac": "true 时仅在使用外接电源时阻止息屏；用电池时不干预（防止耗电）。"
+  },
+  "process_names": [
+    "zcode.exe", "claude.exe", "ollama.exe", "ollama_app.exe",
+    "lm studio.exe", "lmstudio.exe", "chatgpt.exe", "copilot.exe",
+    "jan.exe", "gpt4all.exe", "msty.exe", "chatbox.exe",
+    "cherry studio.exe", "cherrystudio.exe", "anythingllm.exe",
+    "comfyui.exe", "koboldcpp.exe", "llamafile.exe",
+    "llama-server.exe", "llama-cli.exe",
+    "cursor.exe", "windsurf.exe", "trae.exe",
+    "workbuddy.exe", "deepseek.exe", "doubao.exe", "kimi.exe",
+    "qwen.exe", "chatglm.exe", "openai.exe"
+  ],
+  "cmdline_keywords": [
+    "zcode", "claude", "ollama", "llama", "lmstudio", "lm studio",
+    "chatgpt", "gpt4all", "comfyui", "vllm", "sglang", "koboldcpp",
+    "llamafile", "text-generation-webui", "open-webui", "openwebui",
+    "openai", "anthropic", "deepseek", "deepseek-ai", "\\dsh\\", "qwen", "zhipu", "chatglm",
+    "bigmodel", "moonshot", "kimi", "doubao", "anythingllm",
+    "cherry-studio", "cherry studio", "msty", "jan.ai", "copilot",
+    "gemini", "grok", "aider", "cursor-agent", "windsurf", "trae",
+    "workbuddy", "codebuddy"
+  ],
+  "exclude_cmdline_keywords": [
+    "zcode-activity-monitor",
+    "ai-keep-awake",
+    "ai_keepawake"
+  ],
+  "include_descendants": true,
+  "grace_seconds": 180,
+  "min_cpu_seconds_per_poll": 0.2,
+  "min_cpu_seconds_per_poll_descendant": 0.05,
+  "poll_interval_seconds": 5,
+  "prevent_display_off": true,
+  "prevent_system_sleep": true,
+  "block_only_on_ac": true
+}

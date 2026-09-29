@@ -1,0 +1,4 @@
+ai_keepawake.log
+ai_keepawake.pid
+__pycache__/
+*.pyc

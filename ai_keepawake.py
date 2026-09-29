@@ -67,7 +67,7 @@ DEFAULT_CONFIG = {
         "comfyui.exe", "koboldcpp.exe", "llamafile.exe",
         "llama-server.exe", "llama-cli.exe", "llama-swarm.exe",
         "cursor.exe", "windsurf.exe", "trae.exe",
-        "workbuddy.exe", "deepseek.exe", "doubao.exe", "kimi.exe",
+        "workbuddy.exe", "deepseek.exe", "deepseek harness.exe", "doubao.exe", "kimi.exe",
         "qwen.exe", "chatglm.exe", "openai.exe",
     ],
     "cmdline_keywords": [

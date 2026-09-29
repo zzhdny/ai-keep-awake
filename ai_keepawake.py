@@ -41,6 +41,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(SCRIPT_DIR, "ai_keepawake_config.json")
 PID_FILE = os.path.join(SCRIPT_DIR, "ai_keepawake.pid")
 LOG_FILE = os.path.join(SCRIPT_DIR, "ai_keepawake.log")
+CRASH_LOG = os.path.join(SCRIPT_DIR, "ai_keepawake_crash.log")
 
 DEFAULT_CONFIG = {
     "_说明": {
@@ -58,7 +59,7 @@ DEFAULT_CONFIG = {
         "block_only_on_ac": "true 时仅在使用外接电源时阻止息屏；用电池时不干预（防止耗电）。",
     },
     "process_names": [
-        "zcode.exe", "claude.exe", "ollama.exe", "ollama_app.exe",
+        "zcode.exe", "claude.exe", "codex.exe", "ollama.exe", "ollama_app.exe",
         "lm studio.exe", "lmstudio.exe", "chatgpt.exe", "copilot.exe",
         "jan.exe", "gpt4all.exe", "msty.exe", "chatbox.exe",
         "cherry studio.exe", "cherrystudio.exe", "anythingllm.exe",
@@ -69,7 +70,7 @@ DEFAULT_CONFIG = {
         "qwen.exe", "chatglm.exe", "openai.exe",
     ],
     "cmdline_keywords": [
-        "zcode", "claude", "ollama", "llama", "lmstudio", "lm studio",
+        "zcode", "claude", "codex", "ollama", "llama", "lmstudio", "lm studio",
         "chatgpt", "gpt4all", "comfyui", "vllm", "sglang", "koboldcpp",
         "llamafile", "text-generation-webui", "open-webui", "openwebui",
         "openai", "anthropic", "deepseek", "deepseek-ai", "\\dsh\\", "qwen", "zhipu", "chatglm",
@@ -314,6 +315,7 @@ def _setup_logging(verbose):
         pass
     log = logging.getLogger("ai_keepawake")
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
+    logging.raiseExceptions = False  # handler 出错(如日志文件被占用)不炸进程
     fmt = logging.Formatter("%(asctime)s  %(message)s", "%Y-%m-%d %H:%M:%S")
     fh = RotatingFileHandler(LOG_FILE, maxBytes=512 * 1024, backupCount=1, encoding="utf-8")
     fh.setFormatter(fmt)
@@ -513,7 +515,25 @@ def main():
     with open(PID_FILE, "w", encoding="ascii") as f:
         f.write(str(os.getpid()))
     try:
-        run_loop(detector, args.duration, args.config)
+        backoff = 5
+        while True:
+            try:
+                run_loop(detector, args.duration, args.config)
+                break  # 正常退出（--duration 到期等）
+            except KeyboardInterrupt:
+                raise
+            except Exception:
+                # 兜底监督：run_loop 意外崩溃时记录到独立 crash 日志并重启，
+                # 避免任何未预料异常让守护进程无声消失
+                import traceback
+                try:
+                    with open(CRASH_LOG, "a", encoding="utf-8") as f:
+                        f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " run_loop 异常，%.0f 秒后重启\n" % backoff)
+                        f.write(traceback.format_exc() + "\n")
+                except OSError:
+                    pass
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60)
     finally:
         set_execution_state(False, True, True)
         try:

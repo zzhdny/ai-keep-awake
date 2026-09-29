@@ -14,7 +14,7 @@
     "block_only_on_ac": "true 时仅在使用外接电源时阻止息屏；用电池时不干预（防止耗电）。"
   },
   "process_names": [
-    "zcode.exe", "claude.exe", "ollama.exe", "ollama_app.exe",
+    "zcode.exe", "claude.exe", "codex.exe", "ollama.exe", "ollama_app.exe",
     "lm studio.exe", "lmstudio.exe", "chatgpt.exe", "copilot.exe",
     "jan.exe", "gpt4all.exe", "msty.exe", "chatbox.exe",
     "cherry studio.exe", "cherrystudio.exe", "anythingllm.exe",
@@ -25,7 +25,7 @@
     "qwen.exe", "chatglm.exe", "openai.exe"
   ],
   "cmdline_keywords": [
-    "zcode", "claude", "ollama", "llama", "lmstudio", "lm studio",
+    "zcode", "claude", "codex", "ollama", "llama", "lmstudio", "lm studio",
     "chatgpt", "gpt4all", "comfyui", "vllm", "sglang", "koboldcpp",
     "llamafile", "text-generation-webui", "open-webui", "openwebui",
     "openai", "anthropic", "deepseek", "deepseek-ai", "\\dsh\\", "qwen", "zhipu", "chatglm",

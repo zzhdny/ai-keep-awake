@@ -333,7 +333,10 @@ def _describe(active, matched_pids, once_mode=False):
         reason = "AI进程" if pid in matched_pids else "AI的子进程"
         s = "%s(%d)[%s]" % (pr["name"] or "?", pid, reason)
         if once_mode:
-            cl = " ".join(pr["obj"].cmdline() or [])[:90]
+            try:
+                cl = " ".join(pr["obj"].cmdline() or [])[:90]
+            except Exception:  # 进程可能在检测间隙退出
+                cl = ""
             if cl:
                 s += " ← " + cl
         parts.append(s)

@@ -40,6 +40,17 @@
 | `stop_ai_keepawake.bat` | 停止后台常驻进程 |
 | `ai_keepawake.log` | 运行日志（只记状态变化，自动轮转） |
 | `ai_keepawake.pid` | 当前进程号（自动生成） |
+| `secret_scan.py` | 发布前密钥泄漏扫描器（通用小工具，对本项目目录运行） |
+
+## 发布其他项目前：先扫密钥
+
+把任何 AI 生成的项目发布到 GitHub 前，改一下 `secret_scan.py` 里的 `ROOT`
+指向项目目录跑一遍（或复制过去运行），确认没有硬编码的 API key/token 再发布。
+它只读扫描、输出打码，本身不联网。
+
+```bash
+py -3.12 secret_scan.py
+```
 
 ## 常用命令
 

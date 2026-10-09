@@ -9,8 +9,11 @@
        - 进程命令行包含 cmdline_keywords 中任一关键词
      命令行包含 exclude_cmdline_keywords 中任一关键词的进程永远不算。
   3. AI 进程自己，以及它派生的所有子进程（AI 启动的安装/转码/脚本等任务），
-     只有在"持续活动"时才视为"AI 正在工作"：一个轮询周期内 CPU 累计超过
-     min_cpu_seconds_per_poll，且与上一次活动间隔不超过 burst_confirm_seconds。
+     只有在"持续活动"时才视为"AI 正在工作"。单次活动超阈值只是"脉冲"，两层
+     确认都通过才算数：
+       a) 时间层：两次脉冲间隔不超过 burst_confirm_seconds（挡住低频心跳）；
+       b) 数量层：确认窗口内所有脉冲的 CPU 累计超过 min_cpu_seconds_per_window
+          （挡住高频小脉冲）。
      单次孤立的活动（如后台心跳/定时轮询）不阻止息屏。停止活动后再维持
      grace_seconds 秒，容忍 AI 等待网络响应的空档。
   4. 有 AI 在工作 → SetThreadExecutionState 阻止息屏/待机；
@@ -55,7 +58,9 @@ DEFAULT_CONFIG = {
         "grace_seconds": "宽限期：AI 进程停止 CPU 活动后仍维持'工作中'状态多少秒，容忍 AI 等待网络响应的空档。",
         "min_cpu_seconds_per_poll": "AI 程序自身进程（按名单/关键词匹配的）一个轮询周期内 CPU 累计超过该秒数才算'有活动'。实测空闲 Electron 进程噪声在 0.1 以下、真实工作在 0.25 以上，默认 0.2 居中。",
         "min_cpu_seconds_per_poll_descendant": "AI 派生子进程（pip/npm/编译等真实任务）的活动阈值，保持灵敏，默认 0.05。",
-        "burst_confirm_seconds": "持续活动确认：一次孤立的 CPU 活动不算'工作中'，两次活动间隔不超过该秒数才确认。真实任务会持续消耗 CPU（连续多次活动），而心跳/轮询型后台活动（如 WorkBuddy 每约 4 分钟一次的远程查询）只是偶尔动一下，不应阻止息屏。",
+        "burst_confirm_seconds": "持续活动确认（时间层）：一次孤立的 CPU 活动不算'工作中'，两次活动间隔不超过该秒数才可能确认。真实任务会持续消耗 CPU（连续多次活动），而心跳/轮询型后台活动（如 WorkBuddy 每约 4 分钟一次的远程查询）只是偶尔动一下，不应阻止息屏。",
+        "min_cpu_seconds_per_window": "持续活动确认（数量层）：确认窗口内所有活动的 CPU 累计超过该秒数才算'工作中'。真实任务（推理/编译/流式输出）累计远超此值；高频小脉冲（自动保存/遥测/定时同步）即使凑够两次活动总量也很小，过不了这一层。默认 1.0。",
+        "min_cpu_seconds_per_window_descendant": "AI 派生子进程的窗口累计下限，保持灵敏，默认 0.25。",
         "poll_interval_seconds": "轮询间隔秒数。",
         "prevent_display_off": "true 时阻止息屏。",
         "prevent_system_sleep": "true 时阻止系统待机睡眠。",
@@ -72,6 +77,7 @@ DEFAULT_CONFIG = {
         "cursor.exe", "windsurf.exe", "trae.exe",
         "workbuddy.exe", "deepseek.exe", "deepseek harness.exe", "doubao.exe", "kimi.exe",
         "qwen.exe", "chatglm.exe", "openai.exe",
+        "cowork-svc.exe", "msofficeplusservice.exe",
     ],
     "cmdline_keywords": [
         "zcode", "claude", "codex", "ollama", "llama", "lmstudio", "lm studio",
@@ -82,6 +88,7 @@ DEFAULT_CONFIG = {
         "cherry-studio", "cherry studio", "msty", "jan.ai", "copilot",
         "gemini", "grok", "aider", "cursor-agent", "windsurf", "trae",
         "workbuddy", "codebuddy",
+        "pdf2zh", "officeplus", "office16\\ai\\ai.exe",
     ],
     "exclude_cmdline_keywords": [
         "zcode-activity-monitor",
@@ -92,6 +99,9 @@ DEFAULT_CONFIG = {
     "grace_seconds": 180,
     "min_cpu_seconds_per_poll": 0.2,
     "min_cpu_seconds_per_poll_descendant": 0.05,
+    "burst_confirm_seconds": 120,
+    "min_cpu_seconds_per_window": 1.0,
+    "min_cpu_seconds_per_window_descendant": 0.25,
     "poll_interval_seconds": 5,
     "prevent_display_off": True,
     "prevent_system_sleep": True,
@@ -167,6 +177,7 @@ class Detector:
         self.last_active = {}     # pid -> 上次"确认工作"的时刻
         self.last_burst = {}      # pid -> 上次出现 CPU 活动的时刻（含未确认的孤立活动）
         self.burst_delta = {}     # pid -> 最近一次活动的 CPU 秒数（写日志/诊断用）
+        self.recent = {}          # pid -> [(时刻, CPU秒数)] 确认窗口内的活动脉冲
         self.cmdline_cache = {}   # (pid, create_time) -> 小写命令行
         self._apply(cfg)
 
@@ -255,13 +266,18 @@ class Detector:
                     seen.add(cur)
                     cur = parent_of.get(cur)
 
-        # 3) 用 CPU 活动判定"正在工作"（持续活动确认）
-        #    一次孤立的 CPU 活动不算"工作中"：必须出现两次活动、且间隔不超过
-        #    burst_confirm_seconds 才确认。真实任务会连续消耗 CPU（几秒内就有第二次
-        #    活动）；而心跳/轮询型后台活动（如 WorkBuddy 每约 4 分钟一次的远程查询）
-        #    只是偶尔动一下——视其为工作会让息屏被无限期推迟，这正是"AI 早就干完了、
-        #    屏幕却迟迟不熄"的根因。
+        # 3) 用 CPU 活动判定"正在工作"（持续活动确认，两层都要过）
+        #    单次超阈值的活动只是"脉冲"，不算"工作中"：
+        #    a) 时间层：必须出现两次脉冲、且间隔不超过 burst_confirm_seconds
+        #       —— 挡住低频心跳（如 WorkBuddy 每约 4 分钟一次的远程查询）；
+        #    b) 数量层：确认窗口内所有脉冲的 CPU 累计须达到 min_cpu_seconds_per_window
+        #       —— 挡住高频小脉冲（自动保存/遥测/定时同步，每次零点几秒）。
+        #    真实任务（推理、编译、流式输出）会连续大量消耗 CPU，两层都轻松通过。
+        #    视脉冲为工作会让息屏被无限期推迟（每次动一下就把宽限期重新拉满），
+        #    这正是"AI 早就干完了、屏幕却迟迟不熄"的根因。
         confirm = float(cfg.get("burst_confirm_seconds", 120))
+        floor_matched = float(cfg.get("min_cpu_seconds_per_window", 1.0))
+        floor_desc = float(cfg.get("min_cpu_seconds_per_window_descendant", floor_matched * 0.25))
         active = {}
         for pid, pr in candidates.items():
             try:
@@ -276,9 +292,15 @@ class Detector:
             # prev is None 的那一轮只建立 CPU 时间基线，不算活动：否则"首见"会与
             # 紧接着的一次孤立脉冲凑成两次，让心跳型进程在程序刚启动时误判。
             if prev is not None and delta >= epsilon:
-                last = self.last_burst.get(pid)
-                if last is not None and now - last <= confirm:
+                ev = self.recent.setdefault(pid, [])
+                ev.append((now, delta))
+                while ev and ev[0][0] < now - confirm:
+                    ev.pop(0)  # 滑出确认窗口的脉冲不再参与累计
+                floor = floor_matched if pid in matched else floor_desc
+                window_total = sum(d for _, d in ev)
+                if len(ev) >= 2 and window_total >= floor:
                     self.last_active[pid] = now
+                    pr["window"] = window_total
                 self.last_burst[pid] = now
                 self.burst_delta[pid] = delta
                 pr["delta"] = delta
@@ -287,7 +309,8 @@ class Detector:
 
         # 4) 清理已退出进程的跟踪记录
         live = {pr["pid"] for pr in procs}
-        for table in (self.cpu_last, self.last_active, self.last_burst, self.burst_delta):
+        for table in (self.cpu_last, self.last_active, self.last_burst,
+                      self.burst_delta, self.recent):
             for pid in list(table):
                 if pid not in live:
                     del table[pid]
@@ -351,6 +374,9 @@ def _describe(active, matched_pids, once_mode=False):
         d = pr.get("delta")
         if d:
             s += " CPU+%.2fs" % d  # 最近一个轮询周期消耗的 CPU 秒数，便于事后诊断
+        w = pr.get("window")
+        if w:
+            s += " 窗口累计%.1fs" % w  # 确认窗口内累计活动量，说明为何算"在工作"
         if once_mode:
             try:
                 cl = " ".join(pr["obj"].cmdline() or [])[:90]
@@ -383,19 +409,21 @@ def cmd_scan(detector):
 
 def cmd_once(detector):
     interval = max(2, min(5, int(detector.cfg.get("poll_interval_seconds", 5))))
-    print("采样中：需连续三轮检测（每 %d 秒一轮）才能判定'持续活动'，约 %d 秒…"
-          % (interval, interval * 2))
+    print("采样中：需连续四轮检测（每 %d 秒一轮）才能判定'持续活动'，约 %d 秒…"
+          % (interval, interval * 3))
     detector.evaluate()  # 第 1 轮：建立 CPU 时间基线
     time.sleep(interval)
     detector.evaluate()  # 第 2 轮：观测到第一次活动
     time.sleep(interval)
-    active, matched = detector.evaluate()  # 第 3 轮：如仍活动即确认
+    detector.evaluate()  # 第 3 轮：脉冲计数增加
+    time.sleep(interval)
+    active, matched = detector.evaluate()  # 第 4 轮：两层确认（间隔 + 累计量）
     if active:
         print("检测结果：检测到 %d 个 AI 相关进程正在活动 → 会阻止息屏" % len(active))
         print("  " + _describe(active, matched, once_mode=True))
     else:
         print("检测结果：当前没有持续活动的 AI → 按系统设定正常息屏")
-        print("  （单次孤立活动不算工作；真实任务在两轮之间必有第二次活动）")
+        print("  （单次孤立心跳、窗口内累计量过小的小脉冲都不算工作；真实任务会持续消耗 CPU）")
 
 
 def cmd_test_hold(detector, seconds):
@@ -454,9 +482,10 @@ def run_loop(detector, duration, config_path):
         config_mtime = 0.0
 
     log.info("AI KeepAwake 已启动：有 AI 工作时阻止息屏，AI 空闲 %d 秒后恢复系统默认。"
-             "宽限期=%ds 确认窗口=%ds 轮询=%ds 电池供电时不干预=%s",
+             "宽限期=%ds 确认窗口=%ds 窗口下限=%.1fs 轮询=%ds 电池供电时不干预=%s",
              int(cfg.get("grace_seconds", 180)), int(cfg.get("grace_seconds", 180)),
              int(cfg.get("burst_confirm_seconds", 120)),
+             float(cfg.get("min_cpu_seconds_per_window", 1.0)),
              int(cfg.get("poll_interval_seconds", 5)), cfg.get("block_only_on_ac", True))
 
     while True:

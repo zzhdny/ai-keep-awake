@@ -8,7 +8,9 @@
     "grace_seconds": "宽限期：AI 进程停止 CPU 活动后仍维持'工作中'状态多少秒，容忍 AI 等待网络响应的空档。",
     "min_cpu_seconds_per_poll": "AI 程序自身进程（按名单/关键词匹配的）一个轮询周期内 CPU 累计超过该秒数才算'有活动'。实测空闲 Electron 进程噪声在 0.1 以下、真实工作在 0.25 以上，默认 0.2 居中。",
     "min_cpu_seconds_per_poll_descendant": "AI 派生子进程（pip/npm/编译等真实任务）的活动阈值，保持灵敏，默认 0.05。",
-    "burst_confirm_seconds": "持续活动确认：一次孤立的 CPU 活动不算'工作中'，两次活动间隔不超过该秒数才确认。真实任务会持续消耗 CPU（连续多次活动），而心跳/轮询型后台活动（如 WorkBuddy 每约 4 分钟一次的远程查询）只是偶尔动一下，不应阻止息屏。",
+    "burst_confirm_seconds": "持续活动确认（时间层）：一次孤立的 CPU 活动不算'工作中'，两次活动间隔不超过该秒数才可能确认。真实任务会持续消耗 CPU（连续多次活动），而心跳/轮询型后台活动（如 WorkBuddy 每约 4 分钟一次的远程查询）只是偶尔动一下，不应阻止息屏。",
+    "min_cpu_seconds_per_window": "持续活动确认（数量层）：确认窗口内所有活动的 CPU 累计超过该秒数才算'工作中'。真实任务（推理/编译/流式输出）累计远超此值；高频小脉冲（自动保存/遥测/定时同步）即使凑够两次活动总量也很小，过不了这一层。默认 1.0。",
+    "min_cpu_seconds_per_window_descendant": "AI 派生子进程的窗口累计下限，保持灵敏，默认 0.25。",
     "poll_interval_seconds": "轮询间隔秒数。",
     "prevent_display_off": "true 时阻止息屏。",
     "prevent_system_sleep": "true 时阻止系统待机睡眠。",
@@ -24,7 +26,8 @@
     "llama-server.exe", "llama-cli.exe",
     "cursor.exe", "windsurf.exe", "trae.exe",
     "workbuddy.exe", "deepseek.exe", "deepseek harness.exe", "doubao.exe", "kimi.exe",
-    "qwen.exe", "chatglm.exe", "openai.exe"
+    "qwen.exe", "chatglm.exe", "openai.exe",
+    "cowork-svc.exe", "msofficeplusservice.exe"
   ],
   "cmdline_keywords": [
     "zcode", "claude", "codex", "ollama", "llama", "lmstudio", "lm studio",
@@ -34,7 +37,8 @@
     "bigmodel", "moonshot", "kimi", "doubao", "anythingllm",
     "cherry-studio", "cherry studio", "msty", "jan.ai", "copilot",
     "gemini", "grok", "aider", "cursor-agent", "windsurf", "trae",
-    "workbuddy", "codebuddy"
+    "workbuddy", "codebuddy",
+    "pdf2zh", "officeplus", "office16\\ai\\ai.exe"
   ],
   "exclude_cmdline_keywords": [
     "zcode-activity-monitor",
@@ -46,6 +50,8 @@
   "min_cpu_seconds_per_poll": 0.2,
   "min_cpu_seconds_per_poll_descendant": 0.05,
   "burst_confirm_seconds": 120,
+  "min_cpu_seconds_per_window": 1.0,
+  "min_cpu_seconds_per_window_descendant": 0.25,
   "poll_interval_seconds": 5,
   "prevent_display_off": true,
   "prevent_system_sleep": true,
